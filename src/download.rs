@@ -70,7 +70,7 @@ async fn download_video(url: &Url, output: &str, options: &Options) -> Result<()
         }
         _ => {
             eprintln!("Unsupported file extension: {}", file_extension);
-            return Err("Unsupported file extension".into());
+            return Err(Box::new(crate::error::extension_error::ExtensionError));
         }
     }
 
@@ -96,31 +96,31 @@ pub async fn download(url: &str, output: &str, options: &Options) -> Result<(), 
 
     match download_video(&parsed_url, output, options).await {
         Ok(_) => {}
-        Err(err) => {
-            if err.to_string().contains("extension") {
-                println!("Trying to find a video or playlist file in page");
-                match find_video_or_playlist(&parsed_url).await {
-                    Ok(video_url) => {
-                        match download_video(&video_url, &output, options).await {
-                            Ok(_) => {}
-                            Err(err) => {
-                                eprintln!("Error downloading video or playlist: {}", err);
-                                return Err(err);
-                            }
+        Err(ref err) if err.is::<crate::error::extension_error::ExtensionError>() => {
+            println!("Trying to find a video or playlist file in page");
+            match find_video_or_playlist(&parsed_url).await {
+                Ok(video_url) => {
+                    match download_video(&video_url, &output, options).await {
+                        Ok(_) => {}
+                        Err(err) => {
+                            eprintln!("Error downloading video or playlist: {}", err);
+                            return Err(err);
                         }
                     }
-                    Err(err) => {
-                        eprintln!("Error finding video or playlist: {}", err);
-                        return Err(err);
-                    }
+                }
+                Err(err) => {
+                    eprintln!("Error finding video or playlist: {}", err);
+                    return Err(err);
                 }
             }
+        }
+        Err(err) => {
+            return Err(err);
         }
     }
 
 
     println!("Finished downloading {} from: {}", output, url);
-
 
     // now we have the final file, but we should use ffmpeg to convert it to a playable format
     

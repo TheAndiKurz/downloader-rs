@@ -1,6 +1,7 @@
 mod file;
 mod download;
 mod options;
+mod error;
 
 use clap::{Subcommand, Parser};
 

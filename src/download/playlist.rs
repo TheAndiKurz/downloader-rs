@@ -39,16 +39,21 @@ impl Segment {
         *downloaded_segments += 1;
         *downloaded_duration += self.duration;
 
-        print!("Downloaded:  {}/{}s ({:.2}%)",
+        print!("{:width$.0}s / {:width$.0}s ({:5.2}%)",
             *downloaded_duration,
             args.total_duration,
-            (*downloaded_duration / args.total_duration) * 100.0
+            (*downloaded_duration / args.total_duration) * 100.0,
+            width = (args.total_duration as i64).to_string().len()
         );
-        println!("\t {}/{} segs ({:.2}%)", 
+        print!("\t {:width$} / {:width$} segs ({:5.2}%)", 
             *downloaded_segments, 
             args.total_segments, 
-            (*downloaded_segments as f64 / args.total_segments as f64) * 100.0
+            (*downloaded_segments as f64 / args.total_segments as f64) * 100.0,
+            width = args.total_segments.to_string().len()
         );
+
+        print!("\t {}", self.name);
+        println!();
 
         std::mem::drop(downloaded_segments);
         std::mem::drop(downloaded_duration);
@@ -70,29 +75,19 @@ impl Segment {
 
         let _permit = args.semaphore.acquire().await.unwrap();
 
-        if !std::path::Path::new(folder_name).exists() {
-            match std::fs::create_dir(folder_name) {
-                Ok(_) => {}
-                Err(err) => {
-                    eprintln!("Error creating directory: {}", err);
-                    return Err(Box::new(err));
-                }
+        let mut file = match std::fs::File::create(seg_name) {
+            Ok(file) => file,
+            Err(err) => {
+                eprintln!("Error creating file: {}", err);
+                return Err(Box::new(err));
             }
-        }
+        };
 
         let bytes = match download(&self.uri).await {
             Ok(bytes) => bytes,
             Err(err) => {
                 eprintln!("Error downloading segment: {}", err);
                 return Err(err);
-            }
-        };
-
-        let mut file = match std::fs::File::create(seg_name) {
-            Ok(file) => file,
-            Err(err) => {
-                eprintln!("Error creating file: {}", err);
-                return Err(Box::new(err));
             }
         };
 
@@ -123,12 +118,16 @@ async fn parse_playlist_segments(playlist: &str, prefix: &str) -> Result<Playlis
             let idx_end = line.find(",").unwrap();
             let duration = line[idx_start + 1..idx_end].parse::<f64>().unwrap();
             let uri = lines[i + 1];
+            let uri = match Url::parse(uri) {
+                Ok(uri) => uri,
+                Err(_) => Url::parse((prefix.to_string() + uri).as_str()).unwrap(),
+            };
             segments.push(Segment {
-                name: format!("segment_{}", i),
-                uri: match Url::parse(&uri) {
-                    Ok(uri) => uri,
-                    Err(_) => Url::parse((prefix.to_string() + uri).as_str()).unwrap(),
+                name: match uri.path().rsplit_once("/") {
+                    Some((_, name)) => name.to_string(),
+                    None => uri.path().to_string(),
                 },
+                uri,
                 duration,
                 downloaded: false,
             });
@@ -232,6 +231,17 @@ pub async fn download_playlist(playlist_url: &Url, output: &str, options: &Optio
     let downloaded_segments = Arc::new(Mutex::new(0 as i32));
 
     let folder_name = output.to_string() + "_segments";
+
+    if !std::path::Path::new(folder_name.as_str()).exists() {
+        match std::fs::create_dir(folder_name.clone()) {
+            Ok(_) => {}
+            Err(err) => {
+                eprintln!("Error creating folder: {}", err);
+                return Err(Box::new(err));
+            }
+        }
+    }
+    
     let tasks = playlist.segments.to_owned().into_iter().map(
             |mut segment| {
                 let folder_name = folder_name.clone();
@@ -256,16 +266,13 @@ pub async fn download_playlist(playlist_url: &Url, output: &str, options: &Optio
                 Ok(_) => {}
                 Err(err) => {
                     eprintln!("Error downloading segment: {}", err);
-                    return Err(err);
                 }
             },
             Err(err) => {
-                eprintln!("Error downloading segment: {}", err);
-                return Err(Box::new(err));
+                eprintln!("Error waiting for task: {}", err);
             }
         }
     }
-
     // check if all segments were downloaded
 
     let downloaded_segments = downloaded_segments.lock().await;
