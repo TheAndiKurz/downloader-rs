@@ -33,9 +33,9 @@ enum SubCmd {
     }
 }
 
-fn url_validator(url: &str) -> Result<(), String> {
+fn url_validator(url: &str) -> Result<String, String> {
     if url.starts_with("http") {
-        Ok(())
+        Ok(url.to_string())
     } else {
         Err("URL must start with http or https".to_string())
     }
