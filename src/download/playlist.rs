@@ -292,10 +292,11 @@ pub async fn download_playlist(playlist_url: &Url, output: &str, options: &Optio
     };
 
     for segment in playlist.segments {
-        let segment_file = match std::fs::File::open(folder_name.clone() + "/" + &segment.name) {
+        let seg_name = folder_name.clone() + "/" + &segment.name;
+        let segment_file = match std::fs::File::open(seg_name.clone()) {
             Ok(file) => file,
             Err(err) => {
-                eprintln!("Error opening file: {}", err);
+                eprintln!("Error opening file ({}): {}", seg_name, err);
                 return Err(Box::new(err));
             }
         };

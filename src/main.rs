@@ -19,12 +19,15 @@ struct Args {
 #[derive(Subcommand, Debug)]
 #[command(version, about)]
 enum SubCmd {
+    /// Download files from a json file
     File {
         #[clap(default_value = "download.json")]
         /// provide a formated json file that contains the download links
-        file: String, },
+        file: String, 
+    },
+    /// Download a single file from a url
     Download {
-        #[clap(value_parser = url_validator)]
+        #[clap(value_parser = url_parser)]
         /// provide a download link
         url: String,
 
@@ -33,7 +36,7 @@ enum SubCmd {
     }
 }
 
-fn url_validator(url: &str) -> Result<String, String> {
+fn url_parser(url: &str) -> Result<String, String> {
     if url.starts_with("http") {
         Ok(url.to_string())
     } else {

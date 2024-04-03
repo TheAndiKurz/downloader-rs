@@ -14,7 +14,7 @@ pub async fn download_file(file: &str, options: &Options) -> Result<(), Box<dyn 
     let file = match std::fs::File::open(file) {
         Ok(file) => file,
         Err(err) => {
-            eprintln!("Error opening file: {}", err);
+            eprintln!("Error opening file ({}): {}", file, err);
             return Err(Box::new(err));
         }
     };
