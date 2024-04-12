@@ -21,16 +21,16 @@ async fn find_video_or_playlist(url: &url::Url) -> Result<Url, Box<dyn std::erro
         html[start..end].to_string()
     };
 
-    let video_url = match html.find(".mp4") {
+    let video_url = match html.find(".m3u8") {
         Some(index) => {
-            println!("Found video url in page");
+            println!("Found playlist url in page");
             get_string_around_index(index)
         }
         None => {
-            println!("No video url found in page searching for playlist");
-            match html.find(".m3u8") {
+            println!("No playlist url found in page searching for video");
+            match html.find(".mp4") {
                 Some(index) => {
-                    println!("Found playlist url in page");
+                    println!("Found video url in page");
                     get_string_around_index(index)
                 }
                 None => {
