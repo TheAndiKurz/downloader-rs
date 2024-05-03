@@ -75,19 +75,19 @@ impl Segment {
 
         let _permit = args.semaphore.acquire().await.unwrap();
 
-        let mut file = match std::fs::File::create(seg_name) {
-            Ok(file) => file,
-            Err(err) => {
-                eprintln!("Error creating file: {}", err);
-                return Err(Box::new(err));
-            }
-        };
-
         let bytes = match download(&self.uri).await {
             Ok(bytes) => bytes,
             Err(err) => {
                 eprintln!("Error downloading segment: {}", err);
                 return Err(err);
+            }
+        };
+
+        let mut file = match std::fs::File::create(seg_name) {
+            Ok(file) => file,
+            Err(err) => {
+                eprintln!("Error creating file: {}", err);
+                return Err(Box::new(err));
             }
         };
 
