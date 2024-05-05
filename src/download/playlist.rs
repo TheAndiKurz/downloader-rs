@@ -39,12 +39,11 @@ impl Segment {
         *downloaded_segments += 1;
         *downloaded_duration += self.duration;
 
-        print!("{:width$.0}s / {:width$.0}s ({:5.2}%)",
-            *downloaded_duration,
-            args.total_duration,
-            (*downloaded_duration / args.total_duration) * 100.0,
-            width = (args.total_duration as i64).to_string().len()
-        );
+        print_time(*downloaded_duration);
+        print!(" / ");
+        print_time(args.total_duration);
+        print!(" ({:5.2}%)", (*downloaded_duration / args.total_duration) * 100.0);
+
         print!("\t {:width$} / {:width$} segs ({:5.2}%)", 
             *downloaded_segments, 
             args.total_segments, 
@@ -106,6 +105,14 @@ impl Segment {
 
         Ok(())
     }
+}
+
+fn print_time(seconds: f64) {
+    let hours = seconds as i64 / 3600;
+    let minutes = (seconds as i64 % 3600) / 60;
+    let seconds = seconds as i64 % 60;
+
+    print!("{:02}:{:02}:{:02}", hours, minutes, seconds);
 }
 
 async fn parse_playlist_segments(playlist: &str, prefix: &str) -> Result<Playlist, Box<dyn std::error::Error>> {
