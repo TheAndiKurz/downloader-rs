@@ -318,15 +318,5 @@ pub async fn download_playlist(playlist_url: &Url, output: &str, options: &Optio
         }
     }
 
-    // delete segments folder
-    
-    match std::fs::remove_dir_all(folder_name) {
-        Ok(_) => {}
-        Err(err) => {
-            eprintln!("Error deleting folder: {}", err);
-            return Err(Box::new(err));
-        }
-    }
-
     Ok(())
 }
