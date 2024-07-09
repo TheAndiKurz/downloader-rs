@@ -14,6 +14,10 @@ struct Args {
     #[clap(short, long, default_value = "4")]
     /// set the maximum number of parallel downloads
     parallel: usize,
+
+    #[clap(short, long, default_value = "3")]
+    /// set the maximum number of download retries
+    retries: usize,
 }
 
 #[derive(Subcommand, Debug)]
@@ -50,6 +54,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let options = options::Options {
         max_parallel_downloads: args.parallel,
+        max_download_retries: args.retries
     };
 
     println!("Options: {:?}", options);
