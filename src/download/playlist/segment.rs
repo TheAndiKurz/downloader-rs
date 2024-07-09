@@ -1,9 +1,17 @@
+use std::sync::Arc;
+use tokio::sync::Mutex;
+use url::Url;
+
+use crate::download::download::download;
+use crate::download::playlist::playlist::Playlist;
+use crate::options::Options;
+
 #[derive(Debug, Clone)]
-struct Segment {
-    name: String,
-    uri: Url,
-    duration: f64,
-    downloaded: bool,
+pub struct Segment {
+    pub name: String,
+    pub uri: Url,
+    pub duration: f64,
+    pub downloaded: bool,
 }
 
 
@@ -47,8 +55,8 @@ impl Segment {
         print!("\t {}", self.name);
         println!();
 
-        std::mem::drop(downloaded_segments);
-        std::mem::drop(downloaded_duration);
+        drop(downloaded_segments);
+        drop(downloaded_duration);
     }
 
 
@@ -103,6 +111,34 @@ fn print_time(seconds: f64) {
     print!("{:02}:{:02}:{:02}", hours, minutes, seconds);
 }
 
+pub async fn parse_segments(playlist: &str, prefix: &str) -> Result<Vec<Segment>, Box<dyn std::error::Error>> {
+    let mut segments = Vec::new();
+    let lines = playlist.lines().collect::<Vec<&str>>();
+
+    lines.iter().enumerate().for_each(|(i, line)| {
+        if line.starts_with("#EXTINF") {
+            let idx_start = line.find(":").unwrap();
+            let idx_end = line.find(",").unwrap();
+            let duration = line[idx_start + 1..idx_end].parse::<f64>().unwrap();
+            let uri = lines[i + 1];
+            let uri = match Url::parse(uri) {
+                Ok(uri) => uri,
+                Err(_) => Url::parse((prefix.to_string() + uri).as_str()).unwrap(),
+            };
+            segments.push(Segment {
+                name: match uri.path().rsplit_once("/") {
+                    Some((_, name)) => name.to_string(),
+                    None => uri.path().to_string(),
+                },
+                uri,
+                duration,
+                downloaded: false,
+            });
+        }
+    });
+
+    Ok(segments)
+}
 
 pub async fn download_segments(playlist: &Playlist, folder_name: &str, options: &Options) -> Result<(), Box<dyn std::error::Error>> {
     let semaphore = Arc::new(tokio::sync::Semaphore::new(options.max_parallel_downloads));
@@ -118,8 +154,9 @@ pub async fn download_segments(playlist: &Playlist, folder_name: &str, options: 
         total_segments: playlist.segments.len() as i32,
     };
 
-
-    while segments.len() > 0 {
+    let mut tries = 0;
+    
+    while segments.len() > 0 && tries < options.max_download_retries {
         let tasks = segments.into_iter().map(
             |mut segment| {
                 let args = args.clone();
@@ -162,6 +199,8 @@ pub async fn download_segments(playlist: &Playlist, folder_name: &str, options: 
         if segments.len() > 0 {
             println!("Retrying {} segments", segments.len());
         }
+
+        tries += 1;
     }
 
     Ok(())

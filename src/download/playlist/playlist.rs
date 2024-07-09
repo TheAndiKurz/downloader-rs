@@ -1,56 +1,20 @@
-use std::sync::Arc;
-
-use tokio::sync::Mutex;
 use url::Url;
-
 use crate::{download::download::download, options::Options};
+use crate::download::playlist::segment;
+use crate::download::playlist::segment::{parse_segments, Segment};
 
 #[derive(Debug)]
 pub struct Playlist {
-    total_duration: f64,
-    segments: Vec<Segment>,
+    pub total_duration: f64,
+    pub segments: Vec<Segment>,
 }
 
-struct Stream {
+pub struct Stream {
     playlist_url: Url,
     bandwidth: i64,
 }
 
-async fn parse_playlist_segments(playlist: &str, prefix: &str) -> Result<Playlist, Box<dyn std::error::Error>> {
-    let mut segments = Vec::new();
-    let lines = playlist.lines().collect::<Vec<&str>>();
-
-    lines.iter().enumerate().for_each(|(i, line)| {
-        if line.starts_with("#EXTINF") {
-            let idx_start = line.find(":").unwrap();
-            let idx_end = line.find(",").unwrap();
-            let duration = line[idx_start + 1..idx_end].parse::<f64>().unwrap();
-            let uri = lines[i + 1];
-            let uri = match Url::parse(uri) {
-                Ok(uri) => uri,
-                Err(_) => Url::parse((prefix.to_string() + uri).as_str()).unwrap(),
-            };
-            segments.push(Segment {
-                name: match uri.path().rsplit_once("/") {
-                    Some((_, name)) => name.to_string(),
-                    None => uri.path().to_string(),
-                },
-                uri,
-                duration,
-                downloaded: false,
-            });
-        }
-    });
-
-
-    Ok(Playlist {
-        total_duration: segments.iter().map(|segment| segment.duration).sum(),
-        segments,
-    })
-}
-
-
-fn parse_playlist_master(playlist: &str, prefix: &str) -> Result<Stream, Box<dyn std::error::Error>> {
+pub fn parse_playlist_master(playlist: &str, prefix: &str) -> Result<Stream, Box<dyn std::error::Error>> {
     let mut streams = Vec::new();
 
     let lines = playlist.lines().collect::<Vec<&str>>();
@@ -95,7 +59,7 @@ async fn parse_playlist(playlist_url: &Url) -> Result<Playlist, Box<dyn std::err
 
     let prefix = playlist_url.as_str().rsplit_once("/").unwrap().0.to_string() + "/";
 
-    match playlist.find("#EXT-X-STREAM-INF") {
+    let segments = match playlist.find("#EXT-X-STREAM-INF") {
         Some(_) => {
             let stream = match parse_playlist_master(playlist.as_str(), prefix.as_str()) {
                 Ok(stream) => stream,
@@ -119,10 +83,15 @@ async fn parse_playlist(playlist_url: &Url) -> Result<Playlist, Box<dyn std::err
                 }
             };
 
-            parse_playlist_segments(playlist.as_str(), prefix.as_str()).await
+            parse_segments(playlist.as_str(), prefix.as_str()).await
         }
-        None => parse_playlist_segments(playlist.as_str(), prefix.as_str()).await
-    }
+        None => parse_segments(playlist.as_str(), prefix.as_str()).await
+    }?;
+
+    Ok(Playlist {
+        total_duration: segments.iter().map(|segment| segment.duration).sum(),
+        segments
+    })
 }
 
 
@@ -147,7 +116,7 @@ pub async fn download_playlist(playlist_url: &Url, output: &str, options: &Optio
         }
     }
     
-    download_segments(&playlist, folder_name.as_str(), options).await?;
+    segment::download_segments(&playlist, folder_name.as_str(), options).await?;
 
     // segments are downloaded, now we need to merge them
     let mut file = match std::fs::File::create(output) {
@@ -169,13 +138,7 @@ pub async fn download_playlist(playlist_url: &Url, output: &str, options: &Optio
         };
 
         let mut content = std::io::BufReader::new(segment_file);
-        match std::io::copy(&mut content, &mut file) {
-            Ok(_) => {}
-            Err(err) => {
-                eprintln!("Error writing to file: {}", err);
-                return Err(Box::new(err));
-            }
-        }
+        std::io::copy(&mut content, &mut file)?;
     }
 
     Ok(())

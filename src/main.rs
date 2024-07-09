@@ -66,7 +66,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
         SubCmd::Download { url, output } => {
-            if let Ok(_) = download::download(&url, &output, &options).await {
+            if let Ok(_) = download::search::download(&url, &output, &options).await {
                 println!("Finished downloading {} from: {}", output, url);
             }
         }

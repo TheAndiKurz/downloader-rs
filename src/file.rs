@@ -37,7 +37,7 @@ pub async fn download_file(file: &str, options: &Options) -> Result<(), Box<dyn 
 
         println!("Downloading {} to {}", download.url, download.output);
 
-        match download::download(&download.url, &download.output, options).await {
+        match download::search::download(&download.url, &download.output, options).await {
             Ok(_) => {
                 println!("Finished downloading {} to {}", download.url, download.output);
                 println!();

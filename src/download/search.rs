@@ -1,8 +1,6 @@
-mod playlist;
-mod download;
-
 use url::Url;
-
+use crate::download::download;
+use crate::download::playlist::playlist;
 use crate::options::Options;
 
 async fn find_video_or_playlist(url: &url::Url) -> Result<Url, Box<dyn std::error::Error>> {

@@ -49,13 +49,7 @@ pub async fn download_file(url: &Url, output: &str, _: &Options) -> Result<(), B
     };
 
     let mut content = std::io::Cursor::new(bytes);
-    match std::io::copy(&mut content, &mut file) {
-        Ok(_) => {}
-        Err(err) => {
-            eprintln!("Error writing to file: {}", err);
-            return Err(Box::new(err));
-        }
-    }
+    std::io::copy(&mut content, &mut file)?;
 
     Ok(())
 }
