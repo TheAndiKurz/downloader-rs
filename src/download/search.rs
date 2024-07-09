@@ -1,10 +1,13 @@
+use std::path::Path;
+
 use url::Url;
-use crate::download::download;
-use crate::download::playlist::playlist;
+use crate::download::{DownloadClient, playlist, video};
 use crate::options::Options;
 
 async fn find_video_or_playlist(url: &url::Url) -> Result<Url, Box<dyn std::error::Error>> {
-    let html = match download::download(url).await {
+    let download_client = DownloadClient::new();
+
+    let html = match download_client.download(url).await {
         Ok(html) => String::from_utf8(html.to_vec()).unwrap(),
         Err(err) => {
             eprintln!("Error downloading html: {}", err);
@@ -42,13 +45,13 @@ async fn find_video_or_playlist(url: &url::Url) -> Result<Url, Box<dyn std::erro
     Ok(Url::parse(&video_url).unwrap())
 }
 
-async fn download_video(url: &Url, output: &str, options: &Options) -> Result<(), Box<dyn std::error::Error>> {
+async fn download_video(url: &Url, output: &Path, options: &Options) -> Result<(), Box<dyn std::error::Error>> {
     let path = url.path();
     let file_extension = path.split('.').last().unwrap_or("");
     match file_extension {
         "mp4" => {
             println!("Downloading mp4 file");
-            match download::download_file(url, output, options).await {
+            match video::download_video(url, output, options).await {
                 Ok(_) => {}
                 Err(err) => {
                     eprintln!("Error downloading file: {}", err);
@@ -75,14 +78,14 @@ async fn download_video(url: &Url, output: &str, options: &Options) -> Result<()
     Ok(())
 }
 
-pub async fn download(url: &str, output: &str, options: &Options) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn download(url: &str, output: &Path, options: &Options) -> Result<(), Box<dyn std::error::Error>> {
     if std::path::Path::new(output).exists() {
-        eprintln!("File already exists: {}", output);
+        eprintln!("File already exists: {}", output.to_string_lossy());
         return Err("File already exists".into());
     }
 
 
-    println!("Downloading {} from: {}", output, url);
+    println!("Downloading {} from: {}", output.to_string_lossy(), url);
 
     let parsed_url = match url::Url::parse(url) {
         Ok(url) => url,
@@ -118,49 +121,40 @@ pub async fn download(url: &str, output: &str, options: &Options) -> Result<(), 
     }
 
 
-    println!("Finished downloading {} from: {}", output, url);
+    println!("Finished downloading {} from: {}", output.to_string_lossy(), url);
+
 
     // now we have the final file, but we should use ffmpeg to convert it to a playable format
-    
     println!("Converting file to mp4");
 
+    let outfile_name = output.to_str().unwrap();
     let ffmpeg_result = std::process::Command::new("ffmpeg")
         .args(&[
             "-loglevel",
             "error",
             "-i",
-            output,
+            outfile_name,
             "-c",
             "copy",
-            (output.to_string() + ".mp4").as_str(),
+            (outfile_name.to_string() + ".mp4").as_ref(),
         ])
         .output();
 
 
-    match ffmpeg_result {
-        Ok(_) => {}
-        Err(err) => {
-            eprintln!("Error converting file: {}", err);
-            return Err(Box::new(err));
-        }
-    };
-
-    // remove the original output file and move the ffmpeg output to the original output file
-    
-    match std::fs::remove_file(output) {
-        Ok(_) => {}
-        Err(err) => {
-            eprintln!("Error removing file: {}", err);
-            return Err(Box::new(err));
-        }
+    if let Err(err) = ffmpeg_result {
+        eprintln!("Error converting file: {}", err);
+        return Err(Box::new(err));
     }
 
-    match std::fs::rename(output.to_string() + ".mp4", output) {
-        Ok(_) => {}
-        Err(err) => {
-            eprintln!("Error renaming file: {}", err);
-            return Err(Box::new(err));
-        }
+    // remove the original output file and move the ffmpeg output to the original output file
+    if let Err(err) = std::fs::remove_file(output) {
+        eprintln!("Error removing file: {}", err);
+        return Err(Box::new(err));
+    }
+
+    if let Err(err) = std::fs::rename(outfile_name.to_string() + ".mp4", outfile_name) {
+        eprintln!("Error renaming file: {}", err);
+        return Err(Box::new(err));
     }
 
     Ok(())

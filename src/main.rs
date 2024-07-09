@@ -3,6 +3,8 @@ mod download;
 mod options;
 mod error;
 
+use std::path::Path;
+
 use clap::{Subcommand, Parser};
 
 #[derive(Parser, Debug)]
@@ -37,6 +39,10 @@ enum SubCmd {
 
         /// provide a output file name
         output: String,
+
+        #[clap(short, long, default_value = "4")]
+        /// set the block size in mega bytes
+        block_size: usize,
     }
 }
 
@@ -52,9 +58,16 @@ fn url_parser(url: &str) -> Result<String, String> {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
 
+    let block_size = if let SubCmd::Download { block_size, .. } = args.subcmd { 
+        block_size 
+    } else { 
+        0 
+    };
+
     let options = options::Options {
         max_parallel_downloads: args.parallel,
-        max_download_retries: args.retries
+        max_download_retries: args.retries,
+        block_size: (block_size * 1024 * 1024) as u64,
     };
 
     println!("Options: {:?}", options);
@@ -65,8 +78,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 println!("Finished reading file {}", file);
             }
         }
-        SubCmd::Download { url, output } => {
-            if let Ok(_) = download::search::download(&url, &output, &options).await {
+        SubCmd::Download { url, output, .. } => {
+            if let Ok(_) = download::search::download(&url, Path::new(&output), &options).await {
                 println!("Finished downloading {} from: {}", output, url);
             }
         }

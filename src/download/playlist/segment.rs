@@ -1,9 +1,10 @@
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use url::Url;
 
-use crate::download::download::download;
-use crate::download::playlist::playlist::Playlist;
+use crate::download::DownloadClient;
+use crate::download::playlist::Playlist;
 use crate::options::Options;
 
 #[derive(Debug, Clone)]
@@ -60,19 +61,19 @@ impl Segment {
     }
 
 
-    async fn download(&mut self, folder_name: &str) -> Result<(), Box<dyn std::error::Error + Send>> {
+    async fn download(&mut self, folder_name: Arc<PathBuf>, client: Arc<DownloadClient>) -> Result<(), Box<dyn std::error::Error + Send>> {
         if self.downloaded {
             return Ok(());
         }
 
-        let seg_name = folder_name.to_string() + "/" + &self.name;
-        if std::path::Path::new(seg_name.as_str()).exists() {
+        let seg_path = folder_name.join(&self.name);
+        if seg_path.exists() {
             self.downloaded = true;
             return Ok(());
         }
 
 
-        let bytes = match download(&self.uri).await {
+        let bytes = match client.download(&self.uri).await {
             Ok(bytes) => bytes,
             Err(err) => {
                 eprintln!("Error downloading segment: {}", err);
@@ -80,7 +81,7 @@ impl Segment {
             }
         };
 
-        let mut file = match std::fs::File::create(seg_name) {
+        let mut file = match std::fs::File::create(seg_path) {
             Ok(file) => file,
             Err(err) => {
                 eprintln!("Error creating file: {}", err);
@@ -140,10 +141,12 @@ pub async fn parse_segments(playlist: &str, prefix: &str) -> Result<Vec<Segment>
     Ok(segments)
 }
 
-pub async fn download_segments(playlist: &Playlist, folder_name: &str, options: &Options) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn download_segments(playlist: &Playlist, segment_folder: &Path, options: &Options) -> Result<(), Box<dyn std::error::Error>> {
     let semaphore = Arc::new(tokio::sync::Semaphore::new(options.max_parallel_downloads));
     let downloaded_duration = Arc::new(Mutex::new(0.0 as f64));
     let downloaded_segments = Arc::new(Mutex::new(0 as i32));
+    let http_client = Arc::new(DownloadClient::new());
+    let segment_folder = Arc::new(segment_folder.to_owned());
 
     let mut segments = playlist.segments.to_owned();
 
@@ -161,11 +164,12 @@ pub async fn download_segments(playlist: &Playlist, folder_name: &str, options: 
             |mut segment| {
                 let args = args.clone();
                 let semaphore = Arc::clone(&semaphore);
-                let folder_name = folder_name.to_string();
+                let segment_folder = Arc::clone(&segment_folder);
+                let http_client = Arc::clone(&http_client);
                 tokio::spawn(async move {
                     let permit = semaphore.acquire().await.unwrap();
 
-                    if let Err(err) = segment.download(folder_name.as_str()).await {
+                    if let Err(err) = segment.download(segment_folder, http_client).await {
                         return Err(err);
                     }
 

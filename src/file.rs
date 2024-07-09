@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::{download, options::Options};
 use serde::Deserialize;
@@ -7,7 +7,7 @@ use serde::Deserialize;
 #[serde(rename_all = "camelCase")]
 struct DownloadEntity {
     url: String,
-    output: String,
+    output: PathBuf,
 }
 
 pub async fn download_file(file: &str, options: &Options) -> Result<(), Box<dyn std::error::Error>> {
@@ -31,15 +31,15 @@ pub async fn download_file(file: &str, options: &Options) -> Result<(), Box<dyn 
         println!();
 
         if Path::new(&download.output).exists() {
-            println!("File {} already exists, therefore skipping download", download.output);
+            println!("File {} already exists, therefore skipping download", download.output.to_string_lossy());
             continue;
         }
 
-        println!("Downloading {} to {}", download.url, download.output);
+        println!("Downloading {} to {}", download.url, download.output.to_string_lossy());
 
         match download::search::download(&download.url, &download.output, options).await {
             Ok(_) => {
-                println!("Finished downloading {} to {}", download.url, download.output);
+                println!("Finished downloading {} to {}", download.url, download.output.to_string_lossy());
                 println!();
             },
             Err(err) => {
