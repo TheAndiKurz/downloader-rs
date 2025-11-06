@@ -2,8 +2,8 @@ pub mod segment;
 
 use std::{fs::File, io::Write, path::Path};
 
-use url::Url;
 use crate::options::Options;
+use url::Url;
 
 use crate::download::DownloadClient;
 use segment::{parse_segments, Segment};
@@ -19,7 +19,10 @@ pub struct Stream {
     bandwidth: i64,
 }
 
-pub fn parse_playlist_master(playlist: &str, prefix: &str) -> Result<Stream, Box<dyn std::error::Error>> {
+pub fn parse_playlist_master(
+    playlist: &str,
+    prefix: &str,
+) -> Result<Stream, Box<dyn std::error::Error>> {
     let mut streams = Vec::new();
 
     let lines = playlist.lines().collect::<Vec<&str>>();
@@ -29,7 +32,9 @@ pub fn parse_playlist_master(playlist: &str, prefix: &str) -> Result<Stream, Box
             let search = "BANDWIDTH=";
             let idx_start = line.find(search).unwrap();
             let idx_end = idx_start + line[idx_start..].find(",").unwrap();
-            let bandwidth = line[idx_start + 1 + search.len()..idx_end].parse::<i64>().unwrap();
+            let bandwidth = line[idx_start + 1 + search.len()..idx_end]
+                .parse::<i64>()
+                .unwrap();
             let uri = lines[i + 1];
             streams.push(Stream {
                 playlist_url: match Url::parse(uri) {
@@ -41,13 +46,18 @@ pub fn parse_playlist_master(playlist: &str, prefix: &str) -> Result<Stream, Box
         }
     });
 
-    let selected_stream = streams.into_iter().max_by_key(|stream| stream.bandwidth).unwrap();
+    let selected_stream = streams
+        .into_iter()
+        .max_by_key(|stream| stream.bandwidth)
+        .unwrap();
 
     Ok(selected_stream)
 }
 
-
-async fn parse_playlist(playlist_url: &Url, folder_path: &Path) -> Result<Playlist, Box<dyn std::error::Error>> {
+async fn parse_playlist(
+    playlist_url: &Url,
+    folder_path: &Path,
+) -> Result<Playlist, Box<dyn std::error::Error>> {
     let download_client = DownloadClient::new();
 
     let mut playlist = match download_client.download(playlist_url).await {
@@ -66,8 +76,14 @@ async fn parse_playlist(playlist_url: &Url, folder_path: &Path) -> Result<Playli
 
     let prefix = playlist_url
         .as_str()
-        .split_once("?").unwrap_or((playlist_url.as_str(), "")).0 // remove query parameters
-        .rsplit_once("/").unwrap().0.to_string() + "/";           // remove last path (file)
+        .split_once("?")
+        .unwrap_or((playlist_url.as_str(), ""))
+        .0 // remove query parameters
+        .rsplit_once("/")
+        .unwrap()
+        .0
+        .to_string()
+        + "/"; // remove last path (file)
 
     if let Some(_) = playlist.find("#EXT-X-STREAM-INF") {
         let mut master_file = File::create(folder_path.join("master.m3u8"))?;
@@ -103,16 +119,19 @@ async fn parse_playlist(playlist_url: &Url, folder_path: &Path) -> Result<Playli
 
     Ok(Playlist {
         total_duration: segments.iter().map(|segment| segment.duration).sum(),
-        segments
+        segments,
     })
 }
 
-
-pub async fn download_playlist(playlist_url: &Url, output: &Path, options: &Options) -> Result<(), Box<dyn std::error::Error>> {
-    let folder_name = output.to_str().unwrap_or_default().to_string() + "_intermediat";
-    let intermediat_folder = std::path::Path::new(folder_name.as_str());
-    if !intermediat_folder.exists() {
-        match std::fs::create_dir(intermediat_folder) {
+pub async fn download_playlist(
+    playlist_url: &Url,
+    output: &Path,
+    options: &Options,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let folder_name = output.to_str().unwrap_or_default().to_string() + "_intermediate";
+    let intermediate_folder = std::path::Path::new(folder_name.as_str());
+    if !intermediate_folder.exists() {
+        match std::fs::create_dir(intermediate_folder) {
             Ok(_) => {}
             Err(err) => {
                 eprintln!("Error creating folder: {}", err);
@@ -121,7 +140,7 @@ pub async fn download_playlist(playlist_url: &Url, output: &Path, options: &Opti
         }
     }
 
-    let playlist = match parse_playlist(playlist_url, &intermediat_folder).await {
+    let playlist = match parse_playlist(playlist_url, &intermediate_folder).await {
         Ok(playlist) => playlist,
         Err(err) => {
             eprintln!("Error parsing playlist: {}", err);
@@ -129,7 +148,7 @@ pub async fn download_playlist(playlist_url: &Url, output: &Path, options: &Opti
         }
     };
 
-    segment::download_segments(&playlist, &intermediat_folder, options).await?;
+    segment::download_segments(&playlist, &intermediate_folder, options).await?;
 
     // segments are downloaded, now we need to merge them
     let mut file = match std::fs::File::create(output) {
