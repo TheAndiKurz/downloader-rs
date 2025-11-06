@@ -1,8 +1,8 @@
 use std::path::Path;
 
-use url::Url;
-use crate::download::{DownloadClient, playlist, video};
+use crate::download::{playlist, video, DownloadClient};
 use crate::options::Options;
+use url::Url;
 
 async fn find_video_or_playlist(url: &url::Url) -> Result<Url, Box<dyn std::error::Error>> {
     let download_client = DownloadClient::new();
@@ -45,7 +45,11 @@ async fn find_video_or_playlist(url: &url::Url) -> Result<Url, Box<dyn std::erro
     Ok(Url::parse(&video_url).unwrap())
 }
 
-async fn download_video(url: &Url, output: &Path, options: &Options) -> Result<(), Box<dyn std::error::Error>> {
+async fn download_video(
+    url: &Url,
+    output: &Path,
+    options: &Options,
+) -> Result<(), Box<dyn std::error::Error>> {
     let path = url.path();
     let file_extension = path.split('.').last().unwrap_or("");
     match file_extension {
@@ -78,12 +82,15 @@ async fn download_video(url: &Url, output: &Path, options: &Options) -> Result<(
     Ok(())
 }
 
-pub async fn download(url: &str, output: &Path, options: &Options) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn download(
+    url: &str,
+    output: &Path,
+    options: &Options,
+) -> Result<(), Box<dyn std::error::Error>> {
     if std::path::Path::new(output).exists() {
         eprintln!("File already exists: {}", output.to_string_lossy());
         return Err("File already exists".into());
     }
-
 
     println!("Downloading {} from: {}", output.to_string_lossy(), url);
 
@@ -100,15 +107,13 @@ pub async fn download(url: &str, output: &Path, options: &Options) -> Result<(),
         Err(ref err) if err.is::<crate::error::extension_error::ExtensionError>() => {
             println!("Trying to find a video or playlist file in page");
             match find_video_or_playlist(&parsed_url).await {
-                Ok(video_url) => {
-                    match download_video(&video_url, &output, options).await {
-                        Ok(_) => {}
-                        Err(err) => {
-                            eprintln!("Error downloading video or playlist: {}", err);
-                            return Err(err);
-                        }
+                Ok(video_url) => match download_video(&video_url, &output, options).await {
+                    Ok(_) => {}
+                    Err(err) => {
+                        eprintln!("Error downloading video or playlist: {}", err);
+                        return Err(err);
                     }
-                }
+                },
                 Err(err) => {
                     eprintln!("Error finding video or playlist: {}", err);
                     return Err(err);
@@ -120,9 +125,11 @@ pub async fn download(url: &str, output: &Path, options: &Options) -> Result<(),
         }
     }
 
-
-    println!("Finished downloading {} from: {}", output.to_string_lossy(), url);
-
+    println!(
+        "Finished downloading {} from: {}",
+        output.to_string_lossy(),
+        url
+    );
 
     // now we have the final file, but we should use ffmpeg to convert it to a playable format
     println!("Converting file to mp4");
@@ -139,7 +146,6 @@ pub async fn download(url: &str, output: &Path, options: &Options) -> Result<(),
             (outfile_name.to_string() + ".mp4").as_ref(),
         ])
         .output();
-
 
     if let Err(err) = ffmpeg_result {
         eprintln!("Error converting file: {}", err);
