@@ -1,18 +1,18 @@
-mod file;
 mod download;
-mod options;
 mod error;
+mod file;
+mod options;
 
 use std::path::Path;
 
-use clap::{Subcommand, Parser};
+use clap::{Parser, Subcommand};
 
 #[derive(Parser, Debug)]
 #[command(version, about)]
 struct Args {
     #[clap(subcommand)]
     subcmd: SubCmd,
-    
+
     #[clap(short, long, default_value = "4")]
     /// set the maximum number of parallel downloads
     parallel: usize,
@@ -29,7 +29,7 @@ enum SubCmd {
     File {
         #[clap(default_value = "download.json")]
         /// provide a formated json file that contains the download links
-        file: String, 
+        file: String,
     },
     /// Download a single file from a url
     Download {
@@ -43,7 +43,7 @@ enum SubCmd {
         #[clap(short, long, default_value = "4")]
         /// set the block size in mega bytes
         block_size: usize,
-    }
+    },
 }
 
 fn url_parser(url: &str) -> Result<String, String> {
@@ -58,15 +58,14 @@ fn url_parser(url: &str) -> Result<String, String> {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
 
-    let block_size = if let SubCmd::Download { block_size, .. } = args.subcmd { 
-        block_size 
-    } else { 
-        0 
+    let block_size = if let SubCmd::Download { block_size, .. } = args.subcmd {
+        block_size
+    } else {
+        0
     };
 
     let options = options::Options {
         max_parallel_downloads: args.parallel,
-        max_download_retries: args.retries,
         block_size: (block_size * 1024 * 1024) as u64,
     };
 

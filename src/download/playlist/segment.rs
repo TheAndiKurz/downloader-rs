@@ -1,10 +1,11 @@
-use std::path::{Path, PathBuf};
+use futures::lock::Mutex;
+use futures::stream::{self, StreamExt};
+use std::path::Path;
 use std::sync::Arc;
-use tokio::sync::Mutex;
 use url::Url;
 
-use crate::download::DownloadClient;
 use crate::download::playlist::Playlist;
+use crate::download::DownloadClient;
 use crate::options::Options;
 
 #[derive(Debug, Clone)]
@@ -15,23 +16,11 @@ pub struct Segment {
     pub downloaded: bool,
 }
 
-
 struct SegmentDownloadArgs {
-    downloaded_duration: Arc<Mutex<f64>>,
+    downloaded_duration: Mutex<f64>,
     total_duration: f64,
-    downloaded_segments: Arc<Mutex<i32>>,
+    downloaded_segments: Mutex<i32>,
     total_segments: i32,
-}
-
-impl Clone for SegmentDownloadArgs {
-    fn clone(&self) -> SegmentDownloadArgs {
-        SegmentDownloadArgs {
-            downloaded_duration: Arc::clone(&self.downloaded_duration),
-            total_duration: self.total_duration,
-            downloaded_segments: Arc::clone(&self.downloaded_segments),
-            total_segments: self.total_segments,
-        }
-    }
 }
 
 impl Segment {
@@ -44,11 +33,15 @@ impl Segment {
         print_time(*downloaded_duration);
         print!(" / ");
         print_time(args.total_duration);
-        print!(" ({:5.2}%)", (*downloaded_duration / args.total_duration) * 100.0);
+        print!(
+            " ({:5.2}%)",
+            (*downloaded_duration / args.total_duration) * 100.0
+        );
 
-        print!("\t {:width$} / {:width$} segs ({:5.2}%)", 
-            *downloaded_segments, 
-            args.total_segments, 
+        print!(
+            "\t {:width$} / {:width$} segs ({:5.2}%)",
+            *downloaded_segments,
+            args.total_segments,
             (*downloaded_segments as f64 / args.total_segments as f64) * 100.0,
             width = args.total_segments.to_string().len()
         );
@@ -60,8 +53,11 @@ impl Segment {
         drop(downloaded_duration);
     }
 
-
-    async fn download(&mut self, folder_name: Arc<PathBuf>, client: Arc<DownloadClient>) -> Result<(), Box<dyn std::error::Error + Send>> {
+    async fn download(
+        &mut self,
+        folder_name: &Path,
+        client: Arc<DownloadClient>,
+    ) -> Result<(), Box<dyn std::error::Error + Send>> {
         if self.downloaded {
             return Ok(());
         }
@@ -71,7 +67,6 @@ impl Segment {
             self.downloaded = true;
             return Ok(());
         }
-
 
         let bytes = match client.download(&self.uri).await {
             Ok(bytes) => bytes,
@@ -112,7 +107,10 @@ fn print_time(seconds: f64) {
     print!("{:02}:{:02}:{:02}", hours, minutes, seconds);
 }
 
-pub async fn parse_segments(playlist: &str, prefix: &str) -> Result<Vec<Segment>, Box<dyn std::error::Error>> {
+pub async fn parse_segments(
+    playlist: &str,
+    prefix: &str,
+) -> Result<Vec<Segment>, Box<dyn std::error::Error>> {
     let mut segments = Vec::new();
     let lines = playlist.lines().collect::<Vec<&str>>();
 
@@ -141,70 +139,57 @@ pub async fn parse_segments(playlist: &str, prefix: &str) -> Result<Vec<Segment>
     Ok(segments)
 }
 
-pub async fn download_segments(playlist: &Playlist, segment_folder: &Path, options: &Options) -> Result<(), Box<dyn std::error::Error>> {
-    let semaphore = Arc::new(tokio::sync::Semaphore::new(options.max_parallel_downloads));
-    let downloaded_duration = Arc::new(Mutex::new(0.0 as f64));
-    let downloaded_segments = Arc::new(Mutex::new(0 as i32));
+pub async fn download_segments<'a>(
+    playlist: &Playlist,
+    segment_folder: &'a Path,
+    options: &Options,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let downloaded_duration = Mutex::new(0.0 as f64);
+    let downloaded_segments = Mutex::new(0 as i32);
     let http_client = Arc::new(DownloadClient::new());
-    let segment_folder = Arc::new(segment_folder.to_owned());
 
     let mut segments = playlist.segments.to_owned();
 
     let args = SegmentDownloadArgs {
-        downloaded_duration: Arc::clone(&downloaded_duration),
+        downloaded_duration: downloaded_duration,
         total_duration: playlist.total_duration,
-        downloaded_segments: Arc::clone(&downloaded_segments),
+        downloaded_segments: downloaded_segments,
         total_segments: playlist.segments.len() as i32,
     };
 
-    let mut tries = 0;
-    
-    while segments.len() > 0 && tries < options.max_download_retries {
-        let tasks = segments.into_iter().map(
-            |mut segment| {
-                let args = args.clone();
-                let semaphore = Arc::clone(&semaphore);
-                let segment_folder = Arc::clone(&segment_folder);
-                let http_client = Arc::clone(&http_client);
-                tokio::spawn(async move {
-                    let permit = semaphore.acquire().await.unwrap();
+    let tasks = segments
+        .iter_mut()
+        .map(|segment| {
+            let http_client = Arc::clone(&http_client);
+            async {
+                if let Err(err) = segment.download(segment_folder, http_client).await {
+                    return Err(err);
+                }
 
-                    if let Err(err) = segment.download(segment_folder, http_client).await {
-                        return Err(err);
-                    }
+                if segment.downloaded {
+                    segment.finished(&args).await;
+                }
 
-                    std::mem::drop(permit);
-                    if segment.downloaded {
-                        segment.finished(&args).await;
-                    }
-
-                    Ok(segment)
-                })
+                Ok(segment)
             }
-        ).collect::<Vec<_>>();
+        })
+        .collect::<Vec<_>>();
 
-        segments = Vec::new();
-
-        for task in tasks {
-            match task.await {
-                Ok(Ok(segment)) if !segment.downloaded => {
-                    segments.push(segment);
-                },
-                Ok(Err(err)) => {
-                    eprintln!("Error downloading segment: {}", err);
-                },
-                Err(err) => {
-                    eprintln!("Error waiting for task: {}", err);
-                },
-                _ => {}
+    let results = stream::iter(tasks)
+        .buffer_unordered(options.max_parallel_downloads)
+        .collect::<Vec<_>>()
+        .await;
+    for result in results {
+        match result {
+            Err(err) => {
+                eprintln!("Error downloading segment: {}", err);
             }
+            _ => {}
         }
+    }
 
-        if segments.len() > 0 {
-            println!("Retrying {} segments", segments.len());
-        }
-
-        tries += 1;
+    if segments.len() > 0 {
+        println!("Retrying {} segments", segments.len());
     }
 
     Ok(())
